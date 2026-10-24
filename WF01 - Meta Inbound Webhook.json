@@ -1,0 +1,881 @@
+{
+  "name": "WF01 - Meta Inbound Webhook",
+  "nodes": [
+    {
+      "parameters": {
+        "path": "meta-webhook",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "7cce3c2e-cce6-4505-8606-9ebb0ac643bb",
+      "name": "Meta Webhook Verification (GET)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.2,
+      "position": [
+        0,
+        224
+      ],
+      "webhookId": "9e7447ab-3492-46a1-bf0a-ab2c287531ba"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "vt1",
+              "leftValue": "={{ $json.query[\"hub.mode\"] === \"subscribe\" && !!$vars.META_VERIFY_TOKEN && $json.query[\"hub.verify_token\"] === $vars.META_VERIFY_TOKEN }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "01126943-1fe9-4dfe-976a-35d1de2a4855",
+      "name": "Verify Token Valid?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.4,
+      "position": [
+        288,
+        224
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "={{ $json.query[\"hub.challenge\"] }}",
+        "options": {
+          "responseCode": 200,
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "text/plain"
+              }
+            ]
+          }
+        }
+      },
+      "id": "01564ced-03d8-4102-98d4-e5f987d25d46",
+      "name": "Respond With Challenge",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        512,
+        128
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "Forbidden",
+        "options": {
+          "responseCode": 403,
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "text/plain"
+              }
+            ]
+          }
+        }
+      },
+      "id": "12153f76-501f-489f-a8a5-68f16b6506ef",
+      "name": "Respond 403 Verification Failed",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        512,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "meta-webhook",
+        "responseMode": "responseNode",
+        "options": {
+          "binaryPropertyName": "data",
+          "rawBody": true
+        }
+      },
+      "id": "f251d173-0e83-4454-bac1-2c7f73badecc",
+      "name": "Meta Event Receiver (POST)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.2,
+      "position": [
+        0,
+        928
+      ],
+      "webhookId": "9af4d6c2-7c35-4d93-a698-f8f1ada47e0b"
+    },
+    {
+      "parameters": {
+        "action": "hmac",
+        "binaryData": true,
+        "dataPropertyName": "computedSignature"
+      },
+      "id": "62c9ec16-878d-478c-9767-81e5744d50f7",
+      "name": "Compute HMAC of Raw Body",
+      "type": "n8n-nodes-base.crypto",
+      "typeVersion": 2,
+      "position": [
+        368,
+        1280
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "sg1",
+              "leftValue": "={{ !!$json.computedSignature && (\"sha256=\" + $json.computedSignature) === $json.headers[\"x-hub-signature-256\"] }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "0687f8c4-2adb-4c9d-a4f2-397df711c372",
+      "name": "Signature Valid?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.4,
+      "position": [
+        592,
+        1280
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "fromJson",
+        "destinationKey": "payload",
+        "options": {}
+      },
+      "id": "3f27cf59-1adb-4f3d-9f9f-212bcea98538",
+      "name": "Parse JSON Body",
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1.2,
+      "position": [
+        816,
+        1184
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "pl1",
+              "leftValue": "={{ [\"page\",\"instagram\"].includes($json.payload && $json.payload.object) && Array.isArray($json.payload.entry) }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "fcf257d9-868e-4577-a68b-1f7ecca90c55",
+      "name": "Payload Supported?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.4,
+      "position": [
+        1040,
+        1104
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "EVENT_RECEIVED",
+        "options": {
+          "responseCode": 200,
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "text/plain"
+              }
+            ]
+          }
+        }
+      },
+      "id": "ff017c21-3348-4622-a37c-cab48c54e5bd",
+      "name": "Acknowledge Event (200)",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        1264,
+        1056
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst payload = $input.first().json.payload;\nconst platform = payload.object === 'instagram' ? 'instagram' : 'facebook';\nconst out = [];\nfor (const entry of (payload.entry || [])) {\n  const pageId = String(entry.id || '');\n  for (const m of (entry.messaging || [])) {\n    const senderId = String((m.sender && m.sender.id) || '');\n    const recipientId = String((m.recipient && m.recipient.id) || '');\n    const eventTime = m.timestamp || entry.time || null;\n    const base = { platform: platform, page_id: pageId, sender_id: senderId, recipient_id: recipientId, event_time: eventTime };\n    if (!senderId || senderId === pageId) continue;\n    if (m.message) {\n      if (m.message.is_echo || !m.message.mid) continue;\n      const atts = (m.message.attachments || []).map(function (a) {\n        return { type: a.type || null, url: (a.payload && a.payload.url) || null };\n      });\n      const text = m.message.text || '';\n      if (!text && atts.length === 0) continue;\n      out.push({ json: Object.assign({}, base, {\n        external_event_id: String(m.message.mid),\n        event_type: (!text && atts.length > 0) ? 'attachment' : 'text_message',\n        message_text: text,\n        attachments: atts,\n        platform_message_id: String(m.message.mid)\n      }) });\n    } else if (m.postback) {\n      const pb = m.postback.payload || m.postback.title || '';\n      const pbId = m.postback.mid ? String(m.postback.mid) : ('pb:' + senderId + ':' + eventTime + ':' + pb);\n      out.push({ json: Object.assign({}, base, {\n        external_event_id: pbId,\n        event_type: 'postback',\n        message_text: String(pb),\n        postback_payload: String(m.postback.payload || ''),\n        attachments: [],\n        platform_message_id: m.postback.mid ? String(m.postback.mid) : null\n      }) });\n    }\n  }\n  for (const ch of (entry.changes || [])) {\n    const v = ch.value || {};\n    if (platform === 'facebook' && ch.field === 'feed' && v.item === 'comment' && v.verb === 'add') {\n      const fromId = String((v.from && v.from.id) || '');\n      if (!v.comment_id || !fromId || fromId === pageId) continue;\n      out.push({ json: {\n        platform: 'facebook', page_id: pageId, sender_id: fromId, recipient_id: pageId,\n        event_time: v.created_time || entry.time || null,\n        external_event_id: 'comment:' + v.comment_id,\n        event_type: 'comment',\n        message_text: v.message || '',\n        attachments: [],\n        comment_id: String(v.comment_id),\n        post_id: v.post_id ? String(v.post_id) : null,\n        parent_id: v.parent_id ? String(v.parent_id) : null,\n        sender_name: (v.from && v.from.name) || null\n      } });\n    } else if (platform === 'instagram' && ch.field === 'comments') {\n      const fromId = String((v.from && v.from.id) || '');\n      if (!v.id || !fromId || fromId === pageId) continue;\n      out.push({ json: {\n        platform: 'instagram', page_id: pageId, sender_id: fromId, recipient_id: pageId,\n        event_time: entry.time || null,\n        external_event_id: 'comment:' + v.id,\n        event_type: 'comment',\n        message_text: v.text || '',\n        attachments: [],\n        comment_id: String(v.id),\n        post_id: (v.media && v.media.id) ? String(v.media.id) : null,\n        parent_id: v.parent_id ? String(v.parent_id) : null,\n        sender_name: (v.from && v.from.username) || null\n      } });\n    }\n  }\n}\nreturn out;\n"
+      },
+      "id": "efaf76de-d447-4289-aa05-b19437b10d45",
+      "name": "Split and Normalize Events",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1520,
+        1056
+      ]
+    },
+    {
+      "parameters": {
+        "value": "={{ JSON.stringify([$json.platform, $json.external_event_id, $json.event_type, $json.event_time]) }}",
+        "dataPropertyName": "payload_hash"
+      },
+      "id": "18de4589-4561-4d81-b966-f59e2e0b2b1c",
+      "name": "Hash Event Payload",
+      "type": "n8n-nodes-base.crypto",
+      "typeVersion": 2,
+      "position": [
+        1744,
+        1056
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH ins AS (\n  INSERT INTO webhook_events (platform, external_event_id, event_type, payload_hash, processing_status)\n  VALUES ($1, $2, $3, $4, 'received')\n  ON CONFLICT (platform, external_event_id) DO NOTHING\n  RETURNING id\n)\nSELECT ins.id AS webhook_event_id,\n  (SELECT c.order_state\n     FROM conversations c\n     JOIN customers cu ON cu.customer_id = c.customer_id\n    WHERE cu.platform = $1 AND cu.platform_user_id = $5\n    ORDER BY c.last_message_at DESC NULLS LAST\n    LIMIT 1) AS order_state\nFROM ins;",
+        "options": {
+          "queryReplacement": "={{ [$json.platform, $json.external_event_id, $json.event_type, $json.payload_hash, $json.sender_id] }}"
+        }
+      },
+      "id": "f3a61dfd-7cdd-4650-baca-279ae91d456a",
+      "name": "Deduplicate and Log Event",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.7,
+      "position": [
+        1968,
+        1056
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "mUyNiJpJoy8nDP5U",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "\nconst ev = $('Hash Event Payload').item.json;\nconst text = String(ev.message_text || ev.postback_payload || '');\nconst orderRegex = /(\\border\\b|\\bbuy\\b|\\bpurchase\\b|অর্ডার|কিনব|কিনতে|নিতে চাই|নিব)/i;\nconst activeStates = ['draft', 'awaiting_confirmation'];\nconst state = $json.order_state || 'none';\nlet route = 'WF02';\nif (ev.event_type === 'comment') {\n  route = 'WF05';\n} else if (activeStates.includes(state) || orderRegex.test(text)) {\n  route = 'WF03';\n}\nreturn { json: Object.assign({}, ev, { webhook_event_id: $json.webhook_event_id, order_state: state, route: route }) };\n"
+      },
+      "id": "83c688c8-b40c-41bb-a4c2-1f8f24a83998",
+      "name": "Decide Target Workflow",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2192,
+        1056
+      ]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.route }}",
+                    "rightValue": "WF02",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "WF02 Support"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.route }}",
+                    "rightValue": "WF03",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "WF03 Orders"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.route }}",
+                    "rightValue": "WF05",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "WF05 Comments"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "3175b76b-b5cc-4590-b696-26247900d85e",
+      "name": "Route by Target Workflow",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.5,
+      "position": [
+        2048,
+        1280
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "",
+          "cachedResultName": "Select WF02 - AI Customer Support"
+        },
+        "mode": "each",
+        "options": {
+          "waitForSubWorkflow": false
+        }
+      },
+      "id": "2def8bfe-800a-4d79-a3a0-b95679616f78",
+      "name": "Run WF02 AI Customer Support",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.4,
+      "position": [
+        2272,
+        1056
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE webhook_events SET processing_status = 'routed', processed_at = now() WHERE id = $1",
+        "options": {
+          "queryReplacement": "={{ [$(\"Decide Target Workflow\").item.json.webhook_event_id] }}"
+        }
+      },
+      "id": "161d9456-2651-421d-bbf7-471f1ce217bb",
+      "name": "Mark Event Routed",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.7,
+      "position": [
+        2496,
+        1200
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "mUyNiJpJoy8nDP5U",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE webhook_events SET processing_status = 'failed', processed_at = now(), error_message = $2 WHERE id = $1",
+        "options": {
+          "queryReplacement": "={{ [$(\"Decide Target Workflow\").item.json.webhook_event_id, \"Could not start \" + $(\"Decide Target Workflow\").item.json.route] }}"
+        }
+      },
+      "id": "b5bf5dd9-3610-4de3-9dad-3f744a3e7e26",
+      "name": "Mark Event Failed",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.7,
+      "position": [
+        2496,
+        1392
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "mUyNiJpJoy8nDP5U",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "",
+          "cachedResultName": "Select WF03 - Order Management"
+        },
+        "mode": "each",
+        "options": {
+          "waitForSubWorkflow": false
+        }
+      },
+      "id": "883368fd-93c8-4ea1-a866-d60ea608b734",
+      "name": "Run WF03 Order Management",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.4,
+      "position": [
+        2272,
+        1296
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "",
+          "cachedResultName": "Select WF05 - Comment Automation"
+        },
+        "mode": "each",
+        "options": {
+          "waitForSubWorkflow": false
+        }
+      },
+      "id": "ffb8119a-136d-4c2a-aaf0-91b979d1f367",
+      "name": "Run WF05 Comment Automation",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.4,
+      "position": [
+        2272,
+        1536
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "Bad request",
+        "options": {
+          "responseCode": 400,
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "text/plain"
+              }
+            ]
+          }
+        }
+      },
+      "id": "732094b4-e2e8-45e9-aa78-abf02c058a3a",
+      "name": "Respond 400 Bad Request",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        1264,
+        1280
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "Invalid signature",
+        "options": {
+          "responseCode": 403,
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "text/plain"
+              }
+            ]
+          }
+        }
+      },
+      "id": "3dbb7883-9960-40a2-8e46-fadccf20e30a",
+      "name": "Respond 403 Invalid Signature",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        816,
+        1376
+      ]
+    },
+    {
+      "parameters": {
+        "content": "WF01 setup: (1) Create n8n Variable META_VERIFY_TOKEN (any random string, also entered in Meta). (2) Create a Crypto credential whose HMAC secret is the Meta App Secret. (3) Select WF02/WF03/WF05 in the three Execute Workflow nodes once they exist (their Execute Workflow Trigger must accept all data). Callback URL: <n8n webhook base>/webhook/meta-webhook for both GET and POST. Raw-body HMAC and live Meta payload shapes are unverified until tested with a real signed delivery.",
+        "color": 4
+      },
+      "id": "29f72168-0ff6-48d8-9fa5-8a7d2a312436",
+      "name": "WF01 Setup Notes",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1056,
+        544
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Meta Webhook Verification (GET)": {
+      "main": [
+        [
+          {
+            "node": "Verify Token Valid?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Verify Token Valid?": {
+      "main": [
+        [
+          {
+            "node": "Respond With Challenge",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond 403 Verification Failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Meta Event Receiver (POST)": {
+      "main": [
+        [
+          {
+            "node": "Compute HMAC of Raw Body",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Compute HMAC of Raw Body": {
+      "main": [
+        [
+          {
+            "node": "Signature Valid?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Signature Valid?": {
+      "main": [
+        [
+          {
+            "node": "Parse JSON Body",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond 403 Invalid Signature",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse JSON Body": {
+      "main": [
+        [
+          {
+            "node": "Payload Supported?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond 400 Bad Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Payload Supported?": {
+      "main": [
+        [
+          {
+            "node": "Acknowledge Event (200)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond 400 Bad Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Acknowledge Event (200)": {
+      "main": [
+        [
+          {
+            "node": "Split and Normalize Events",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split and Normalize Events": {
+      "main": [
+        [
+          {
+            "node": "Hash Event Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Hash Event Payload": {
+      "main": [
+        [
+          {
+            "node": "Deduplicate and Log Event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Deduplicate and Log Event": {
+      "main": [
+        [
+          {
+            "node": "Decide Target Workflow",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Decide Target Workflow": {
+      "main": [
+        [
+          {
+            "node": "Route by Target Workflow",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route by Target Workflow": {
+      "main": [
+        [
+          {
+            "node": "Run WF02 AI Customer Support",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Run WF03 Order Management",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Run WF05 Comment Automation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run WF02 AI Customer Support": {
+      "main": [
+        [
+          {
+            "node": "Mark Event Routed",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Mark Event Failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run WF03 Order Management": {
+      "main": [
+        [
+          {
+            "node": "Mark Event Routed",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Mark Event Failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run WF05 Comment Automation": {
+      "main": [
+        [
+          {
+            "node": "Mark Event Routed",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Mark Event Failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "0db9cec8-4035-48cc-93af-ef694d971a24",
+  "meta": {
+    "instanceId": "e7563105945f95e9ae7340cca1ccbf247d8dd1f987589f578da42c62090ba135"
+  },
+  "nodeGroups": [
+    {
+      "id": "d004559f-07f7-4995-a3eb-0493b66e2d47",
+      "name": "Verify Meta subscription",
+      "nodeIds": [
+        "01126943-1fe9-4dfe-976a-35d1de2a4855",
+        "01564ced-03d8-4102-98d4-e5f987d25d46",
+        "12153f76-501f-489f-a8a5-68f16b6506ef"
+      ],
+      "description": "Answers Meta GET handshake: returns the challenge only when the verify token matches, otherwise 403."
+    },
+    {
+      "id": "5c873eae-5e72-41bc-9459-866c0df62681",
+      "name": "Validate request",
+      "nodeIds": [
+        "62c9ec16-878d-478c-9767-81e5744d50f7",
+        "0687f8c4-2adb-4c9d-a4f2-397df711c372",
+        "3dbb7883-9960-40a2-8e46-fadccf20e30a",
+        "3f27cf59-1adb-4f3d-9f9f-212bcea98538",
+        "fcf257d9-868e-4577-a68b-1f7ecca90c55",
+        "732094b4-e2e8-45e9-aa78-abf02c058a3a",
+        "ff017c21-3348-4622-a37c-cab48c54e5bd"
+      ],
+      "description": "Checks the signed raw body, rejects bad or unsupported payloads, then acknowledges Meta with 200."
+    },
+    {
+      "id": "5fca2af3-f86a-45b8-a23e-b0329c01d900",
+      "name": "Deduplicate and log events",
+      "nodeIds": [
+        "efaf76de-d447-4289-aa05-b19437b10d45",
+        "18de4589-4561-4d81-b966-f59e2e0b2b1c",
+        "f3a61dfd-7cdd-4650-baca-279ae91d456a",
+        "83c688c8-b40c-41bb-a4c2-1f8f24a83998"
+      ],
+      "description": "Splits events, drops echoes and unsupported types, records each event once, and picks the target workflow."
+    },
+    {
+      "id": "7cd299ba-9020-4479-97ba-0514253206a4",
+      "name": "Hand off to workflows",
+      "nodeIds": [
+        "3175b76b-b5cc-4590-b696-26247900d85e",
+        "2def8bfe-800a-4d79-a3a0-b95679616f78",
+        "883368fd-93c8-4ea1-a866-d60ea608b734",
+        "ffb8119a-136d-4c2a-aaf0-91b979d1f367",
+        "161d9456-2651-421d-bbf7-471f1ce217bb",
+        "b5bf5dd9-3610-4de3-9dad-3f744a3e7e26"
+      ],
+      "description": "Starts support, order or comment workflow without waiting, then marks the logged event routed or failed."
+    }
+  ],
+  "id": "NEARql0GNYqfljIQ",
+  "tags": []
+}
