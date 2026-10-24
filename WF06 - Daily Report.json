@@ -1,0 +1,240 @@
+{
+  "name": "WF06 - Daily Report",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "triggerAtHour": 21
+            }
+          ]
+        }
+      },
+      "id": "3bd3be6b-d2be-42c9-8d21-9080dac5fa9a",
+      "name": "Daily at 21:00 Dhaka",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        0,
+        96
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH b AS (\n  SELECT d,\n         (d::timestamp AT TIME ZONE 'Asia/Dhaka') AS s,\n         ((d + 1)::timestamp AT TIME ZONE 'Asia/Dhaka') AS e\n  FROM (SELECT ((now() AT TIME ZONE 'Asia/Dhaka')::date - 1) AS d) x\n)\nSELECT\n  b.d::text AS report_date,\n  (SELECT count(*)::int FROM messages m WHERE m.direction = 'inbound' AND m.created_at >= b.s AND m.created_at < b.e) AS inbound_messages,\n  (SELECT count(DISTINCT m.conversation_id)::int FROM messages m WHERE m.direction = 'inbound' AND m.created_at >= b.s AND m.created_at < b.e) AS active_conversations,\n  (SELECT count(*)::int FROM messages m WHERE m.direction = 'outbound' AND m.processing_status = 'sent' AND coalesce(m.intent, '') NOT LIKE 'comment\\_%' AND m.created_at >= b.s AND m.created_at < b.e) AS replies_sent,\n  (SELECT count(*)::int FROM messages m WHERE m.processing_status = 'failed' AND m.created_at >= b.s AND m.created_at < b.e) AS failed_messages,\n  (SELECT count(*)::int FROM messages m WHERE m.processing_status = 'escalated' AND m.created_at >= b.s AND m.created_at < b.e) AS escalated_to_human,\n  (SELECT count(*)::int FROM messages m WHERE m.intent LIKE 'comment\\_%' AND m.created_at >= b.s AND m.created_at < b.e) AS comments_handled,\n  (SELECT count(*)::int FROM customers c WHERE c.created_at >= b.s AND c.created_at < b.e) AS new_customers,\n  (SELECT count(*)::int FROM orders o WHERE o.confirmed_at >= b.s AND o.confirmed_at < b.e AND o.order_status <> 'cancelled') AS orders_confirmed,\n  (SELECT coalesce(sum(o.total_bdt), 0)::float8 FROM orders o WHERE o.confirmed_at >= b.s AND o.confirmed_at < b.e AND o.order_status <> 'cancelled') AS confirmed_order_value_bdt,\n  (SELECT count(*)::int FROM orders o WHERE o.confirmed_at >= b.s AND o.confirmed_at < b.e AND o.order_status <> 'cancelled' AND o.payment_status = 'pending') AS orders_payment_pending,\n  (SELECT coalesce(sum(o.total_bdt), 0)::float8 FROM orders o WHERE o.confirmed_at >= b.s AND o.confirmed_at < b.e AND o.order_status <> 'cancelled' AND o.payment_status = 'paid') AS payments_received_bdt,\n  (SELECT count(*)::int FROM orders o WHERE o.order_status = 'cancelled' AND o.updated_at >= b.s AND o.updated_at < b.e) AS orders_cancelled,\n  (SELECT coalesce(json_agg(t), '[]'::json) FROM (\n     SELECT oi.product_name_snapshot AS name, sum(oi.quantity)::int AS qty\n     FROM order_items oi JOIN orders o ON o.order_id = oi.order_id\n     WHERE o.confirmed_at >= b.s AND o.confirmed_at < b.e AND o.order_status <> 'cancelled'\n     GROUP BY oi.product_name_snapshot ORDER BY sum(oi.quantity) DESC, oi.product_name_snapshot LIMIT 3) t) AS top_products,\n  (SELECT count(*)::int FROM content_queue q WHERE q.status = 'published' AND q.published_at >= b.s AND q.published_at < b.e) AS posts_published,\n  (SELECT count(*)::int FROM content_queue q WHERE q.status = 'failed' AND q.created_at >= b.s AND q.created_at < b.e) AS posts_failed,\n  (SELECT count(*)::int FROM content_queue q WHERE q.status = 'review') AS drafts_awaiting_review,\n  (SELECT count(*)::int FROM workflow_errors w WHERE w.created_at >= b.s AND w.created_at < b.e) AS workflow_errors,\n  (SELECT count(*)::int FROM workflow_errors w WHERE w.resolved_at IS NULL) AS unresolved_errors,\n  (SELECT count(*)::int FROM webhook_events we WHERE we.processing_status = 'failed' AND we.received_at >= b.s AND we.received_at < b.e) AS failed_webhook_events,\n  (SELECT coalesce(json_agg(t), '[]'::json) FROM (\n     SELECT p.product_name AS name, p.stock_quantity AS stock\n     FROM products p WHERE p.active AND p.stock_quantity <= 5\n     ORDER BY p.stock_quantity, p.product_name LIMIT 5) t) AS low_stock\nFROM b",
+        "options": {}
+      },
+      "id": "4081fd5c-3065-4c2a-97c8-ef19b18f3c21",
+      "name": "Load Previous Day Metrics",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.7,
+      "position": [
+        224,
+        96
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "mUyNiJpJoy8nDP5U",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const m = $input.item.json;\nconst esc = (s) => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');\nconst n = (v) => Number(v || 0);\nconst money = (v) => Math.round(n(v)).toLocaleString('en-US') + ' টাকা';\nconst top = Array.isArray(m.top_products) ? m.top_products : [];\nconst low = Array.isArray(m.low_stock) ? m.low_stock : [];\nconst lines = [];\nlines.push('<b>Anfas দৈনিক রিপোর্ট - ' + esc(m.report_date) + '</b>');\nlines.push('');\nlines.push('<b>মেসেজ ও কমেন্ট</b>');\nlines.push('ইনবাউন্ড মেসেজ: ' + n(m.inbound_messages) + ' (কনভারসেশন: ' + n(m.active_conversations) + ')');\nlines.push('পাঠানো উত্তর: ' + n(m.replies_sent) + ' | ব্যর্থ: ' + n(m.failed_messages));\nlines.push('মানুষের কাছে হস্তান্তর: ' + n(m.escalated_to_human));\nlines.push('কমেন্ট হ্যান্ডেল: ' + n(m.comments_handled) + ' | নতুন কাস্টমার: ' + n(m.new_customers));\nlines.push('');\nlines.push('<b>অর্ডার (ক্যাশ অন ডেলিভারি)</b>');\nlines.push('কনফার্মড অর্ডার: ' + n(m.orders_confirmed) + ' | মোট মূল্য: ' + money(m.confirmed_order_value_bdt));\nlines.push('পেমেন্ট বাকি: ' + n(m.orders_payment_pending) + ' | পেমেন্ট পাওয়া গেছে: ' + money(m.payments_received_bdt));\nlines.push('বাতিল অর্ডার: ' + n(m.orders_cancelled));\nif (top.length > 0) {\n  lines.push('সেরা পণ্য: ' + top.map((t) => esc(t.name) + ' x' + n(t.qty)).join(', '));\n}\nlines.push('(কনফার্মড COD অর্ডার মানে পেমেন্ট পাওয়া নয়)');\nlines.push('');\nlines.push('<b>কনটেন্ট</b>');\nlines.push('পাবলিশ হয়েছে: ' + n(m.posts_published) + ' | ব্যর্থ: ' + n(m.posts_failed) + ' | রিভিউয়ের অপেক্ষায়: ' + n(m.drafts_awaiting_review));\nlines.push('');\nlines.push('<b>সিস্টেম</b>');\nlines.push('ওয়ার্কফ্লো এরর: ' + n(m.workflow_errors) + ' | অমীমাংসিত: ' + n(m.unresolved_errors) + ' | ব্যর্থ ওয়েবহুক: ' + n(m.failed_webhook_events));\nif (low.length > 0) {\n  lines.push('');\n  lines.push('<b>কম স্টক</b>');\n  lines.push(low.map((p) => esc(p.name) + ' (' + n(p.stock) + ')').join(', '));\n}\nconst metrics = Object.assign({}, m);\ndelete metrics.report_date;\nreturn { json: { report_date: m.report_date, metrics: metrics, report_text: lines.join('\\n') } };"
+      },
+      "id": "adf17c0a-a303-4155-8bf9-11432bf3f9c5",
+      "name": "Build Report Text",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        448,
+        96
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO daily_reports (report_date, metrics, report_text, notification_status)\nVALUES ($1::date, $2::jsonb, $3, 'pending')\nON CONFLICT (report_date) DO UPDATE\n  SET metrics = EXCLUDED.metrics, report_text = EXCLUDED.report_text\n  WHERE daily_reports.notification_status <> 'sent'\nRETURNING report_id, report_date::text AS report_date, report_text",
+        "options": {
+          "queryReplacement": "={{ [$json.report_date, JSON.stringify($json.metrics), $json.report_text] }}"
+        }
+      },
+      "id": "71ae25d9-6cb7-4d6d-bc10-8927dda3a547",
+      "name": "Save Daily Report (Skip If Sent)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.7,
+      "position": [
+        672,
+        96
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "mUyNiJpJoy8nDP5U",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $vars.ADMIN_TELEGRAM_CHAT_ID || \"\" }}",
+        "text": "={{ $json.report_text }}",
+        "additionalFields": {
+          "appendAttribution": false,
+          "parse_mode": "HTML"
+        }
+      },
+      "id": "a7d0a2b2-84ff-437f-8a10-fc091996305d",
+      "name": "Send Report to Admin",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        896,
+        96
+      ],
+      "webhookId": "f5afc2b7-39f3-4e9b-83fd-9890aac32e4e",
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE daily_reports SET notification_status = 'sent' WHERE report_id = $1 RETURNING report_id, notification_status",
+        "options": {
+          "queryReplacement": "={{ [$('Save Daily Report (Skip If Sent)').item.json.report_id] }}"
+        }
+      },
+      "id": "757cd6ab-b723-4f76-a032-6e0f2ab0eeb4",
+      "name": "Mark Report Sent",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.7,
+      "position": [
+        1120,
+        0
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "mUyNiJpJoy8nDP5U",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE daily_reports SET notification_status = 'failed' WHERE report_id = $1 RETURNING report_id, notification_status",
+        "options": {
+          "queryReplacement": "={{ [$('Save Daily Report (Skip If Sent)').item.json.report_id] }}"
+        }
+      },
+      "id": "bcb70ab7-1912-448c-b0a1-193621897bb8",
+      "name": "Mark Report Failed",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.7,
+      "position": [
+        1120,
+        192
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "mUyNiJpJoy8nDP5U",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "content": "WF06 - Daily report. Runs 21:00 Asia/Dhaka and reports the PREVIOUS completed calendar day (Dhaka time). Read-only on business data; writes only daily_reports. A day already marked sent is never re-sent. Needs: Postgres credential, Telegram credential, n8n variable ADMIN_TELEGRAM_CHAT_ID. Confirmed COD orders are shown as payment pending, never as payments received.",
+        "color": 4
+      },
+      "id": "5e6b6e9c-d05c-4d87-b171-776a4e7c3b77",
+      "name": "Report Notes",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        432,
+        288
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Daily at 21:00 Dhaka": {
+      "main": [
+        [
+          {
+            "node": "Load Previous Day Metrics",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Previous Day Metrics": {
+      "main": [
+        [
+          {
+            "node": "Build Report Text",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Report Text": {
+      "main": [
+        [
+          {
+            "node": "Save Daily Report (Skip If Sent)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Daily Report (Skip If Sent)": {
+      "main": [
+        [
+          {
+            "node": "Send Report to Admin",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Report to Admin": {
+      "main": [
+        [
+          {
+            "node": "Mark Report Sent",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Mark Report Failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "timezone": "Asia/Dhaka"
+  },
+  "versionId": "6de54887-8dce-45bd-838c-8e0929b664b2",
+  "meta": {
+    "instanceId": "e7563105945f95e9ae7340cca1ccbf247d8dd1f987589f578da42c62090ba135"
+  },
+  "nodeGroups": [],
+  "id": "R0yJVSV2SQH181Yv",
+  "tags": []
+}
