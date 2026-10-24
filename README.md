@@ -33,74 +33,7 @@ An enterprise-grade, end-to-end automation platform designed for **Anfas Fragran
 
 ## System Architecture
 
-### 1. Visual Architectural Blueprint
-
-```
-+=================================================================================================================+
-|                                        ANFAS BUSINESS AUTOMATION PLATFORM                                       |
-+=================================================================================================================+
-|  1. CLIENT INGESTION CHANNELS                                                                                   |
-|  [ Facebook Messenger & Page ]          [ Instagram Direct & Comments ]            [ Google Drive Asset Sync ]  |
-+-----------------------------------------------------------------------------------------------------------------+
-                                               │                                                      │
-                                               ▼                                                      │
-+---------------------------------------------------------------------------------------------+       │
-|  2. API GATEWAY & SECURITY INGESTION (WF01)                                                 |       │
-|  - Meta Webhook Gateway (GET handshake verification & POST real-time delivery)              |       │
-|  - Cryptographic HMAC-SHA256 signature validation with Meta App Secret                      |       │
-|  - Event idempotency ledger & deduplication hashing in PostgreSQL                          |       │
-|  - Zero-latency HTTP 200 acknowledgment & asynchronous payload routing                      |       │
-+---------------------------------------------------------------------------------------------+       │
-           │                                       │                                  │               │
-           │ (Direct Messages)                     │ (Order Callbacks)                │ (Comments)    │
-           ▼                                       ▼                                  ▼               │
-+-----------------------------+         +-----------------------------+    +------------------------+ │
-| 3A. CUSTOMER CARE (WF02)    |         | 3B. ORDER ENGINE (WF03)     |    | 3C. COMMENT GUARD      | │
-| - Meta 24h Policy Gate      |         | - Conversational COD State  |    |     (WF05)             | │
-| - LangChain Intent Classif. |         |   Machine (PostgreSQL)      |    | - Comment Sentiment    | │
-| - Fact-Grounded RAG Engine  |────────>| - Bangladeshi Phone/Address |    |   & Intent Classifier  | │
-| - Bengali/English Bilingual | (Handoff|   Validation Engine         |    | - Verified Pricing RAG | │
-| - Human Escalation Trigger  |  Order) | - Dynamic Dhaka Delivery Fee|    | - Public Reply / DM    | │
-| - Outbound Messenger/IG API |         | - Stock Pre-Check & Creation|    | - Auto-Hide Toxic/Spam | │
-+-----------------------------+         +-----------------------------+    +------------------------+ │
-           │                                       │                                  │               │
-           └───────────────────────────────────────┴──────────────────────────────────┘               │
-                                                   │                                                  │
-                                                   ▼                                                  ▼
-+-----------------------------------------------------------------------------------------------------------------+
-|  4. CONTENT & MARKETING PIPELINE (WF04)                                                                         |
-|  [ Drive Image Drop ] ──> [ OpenAI Vision Analysis ] ──> [ Bilingual Marketing Copy & Hashtags ]                |
-|                                                                    │                                            |
-|                                                                    ▼                                            |
-|                                                      [ Telegram Interactive Approval ]                          |
-|                                                              ├── Tap [Approve] ──> [ Publish to FB & IG ]       |
-|                                                              └── Tap [Reject]  ──> [ Archive Draft ]            |
-+-----------------------------------------------------------------------------------------------------------------+
-                                                   │
-                  ┌────────────────────────────────┴────────────────────────────────┐
-                  ▼                                                                 ▼
-+--------------------------------------------------+   +--------------------------------------------------+
-|  5. DATA PERSISTENCE & INTEGRITY (PostgreSQL)    |   |  6. HUMAN SUPERVISION & OPERATIONS (Telegram)    |
-|  - 11 Interconnected Relational Schema Tables    |   |  - Real-Time New Order Confirmation Stream       |
-|  - Strict Non-Reversible Order State Triggers    |   |  - Customer Support Escalation Dispatch (Human)  |
-|  - Product Catalog, Size Variants, & Real Stock  |   |  - Interactive Post Review ([Approve]/[Reject])  |
-|  - Webhook Event Deduplication & Audit Ledger    |   |  - Daily 21:00 Dhaka Executive Performance Brief |
-|  - Conversation State & Outbound History Track   |   |  - Critical Error Alert Stream with Quick Links  |
-+--------------------------------------------------+   +--------------------------------------------------+
-                  ▲                                                                 ▲
-                  │                                                                 │
-                  └────────────────────────────────┬────────────────────────────────┘
-                                                   │
-+-----------------------------------------------------------------------------------------------------------------+
-|  7. SCHEDULED AUTOMATION & ERROR SENTINEL (WF06 & WF07)                                                         |
-|  - WF06 Scheduled Cron (Daily 21:00 Asia/Dhaka) ──> Analytics Query ──> Formatted Executive Briefing to Admin   |
-|  - WF07 Global Error Sentinel (n8n Error Trigger) ──> Redact Secrets ──> 30m Throttling ──> Urgent Ops Alert    |
-+-----------------------------------------------------------------------------------------------------------------+
-```
-
----
-
-### 2. Interactive Component & Data Flow Diagram
+### Component & Data Flow Diagram
 
 ```mermaid
 flowchart TB
@@ -211,7 +144,7 @@ flowchart TB
 
 ---
 
-### 3. Subsystem Communication Matrix
+### Subsystem Communication Matrix
 
 | Subsystem / Node | Source | Destination | Protocol / Method | Primary Payload / Action | Resilience & Guardrails |
 |---|---|---|---|---|---|
