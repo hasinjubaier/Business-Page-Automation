@@ -1,0 +1,123 @@
+{
+  "name": "WF00 - Database Schema Setup",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "58d3ff96-954f-4c1d-b3c6-63f50117c2a2",
+      "name": "Run Schema Setup Manually",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "\nCREATE TABLE IF NOT EXISTS products (\n  product_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,\n  sku TEXT NOT NULL,\n  product_name TEXT NOT NULL,\n  category TEXT,\n  description TEXT,\n  scent_notes TEXT,\n  size_ml INTEGER CHECK (size_ml IS NULL OR size_ml > 0),\n  price_bdt NUMERIC(12,2) NOT NULL CHECK (price_bdt >= 0),\n  stock_quantity INTEGER NOT NULL DEFAULT 0 CHECK (stock_quantity >= 0),\n  image_url TEXT,\n  active BOOLEAN NOT NULL DEFAULT TRUE,\n  auto_publish BOOLEAN NOT NULL DEFAULT FALSE,\n  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),\n  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()\n);\nCREATE UNIQUE INDEX IF NOT EXISTS ux_products_sku ON products (lower(sku));\nCREATE INDEX IF NOT EXISTS ix_products_name ON products (lower(product_name));\nCREATE INDEX IF NOT EXISTS ix_products_active ON products (active);\n\nCREATE TABLE IF NOT EXISTS customers (\n  customer_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,\n  platform TEXT NOT NULL CHECK (platform IN ('facebook','instagram')),\n  platform_user_id TEXT NOT NULL,\n  customer_name TEXT,\n  phone TEXT,\n  address TEXT,\n  consent_status TEXT NOT NULL DEFAULT 'unknown' CHECK (consent_status IN ('unknown','granted','revoked')),\n  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),\n  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),\n  CONSTRAINT ux_customers_platform_user UNIQUE (platform, platform_user_id)\n);\n\nCREATE TABLE IF NOT EXISTS conversations (\n  conversation_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,\n  customer_id BIGINT NOT NULL REFERENCES customers(customer_id),\n  platform TEXT NOT NULL CHECK (platform IN ('facebook','instagram')),\n  platform_conversation_id TEXT,\n  last_message_at TIMESTAMPTZ,\n  status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open','waiting_customer','waiting_human','closed')),\n  order_state TEXT NOT NULL DEFAULT 'none' CHECK (order_state IN ('none','draft','awaiting_confirmation','confirmed','cancelled')),\n  assigned_agent TEXT,\n  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),\n  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()\n);\nCREATE UNIQUE INDEX IF NOT EXISTS ux_conversations_platform_conv ON conversations (platform, platform_conversation_id) WHERE platform_conversation_id IS NOT NULL;\nCREATE INDEX IF NOT EXISTS ix_conversations_customer ON conversations (customer_id);\nCREATE INDEX IF NOT EXISTS ix_conversations_status ON conversations (status);\n\nCREATE TABLE IF NOT EXISTS messages (\n  message_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,\n  conversation_id BIGINT REFERENCES conversations(conversation_id),\n  platform TEXT NOT NULL CHECK (platform IN ('facebook','instagram')),\n  direction TEXT NOT NULL CHECK (direction IN ('inbound','outbound')),\n  sender_id TEXT,\n  message_text TEXT,\n  attachment_url TEXT,\n  intent TEXT,\n  processing_status TEXT NOT NULL DEFAULT 'received' CHECK (processing_status IN ('received','processing','processed','sent','failed','ignored','escalated')),\n  platform_message_id TEXT,\n  created_at TIMESTAMPTZ NOT NULL DEFAULT now()\n);\nCREATE UNIQUE INDEX IF NOT EXISTS ux_messages_platform_msgid ON messages (platform, platform_message_id, direction) WHERE platform_message_id IS NOT NULL;\nCREATE INDEX IF NOT EXISTS ix_messages_conversation ON messages (conversation_id, created_at);\nCREATE INDEX IF NOT EXISTS ix_messages_created ON messages (created_at);\n\nCREATE TABLE IF NOT EXISTS webhook_events (\n  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,\n  platform TEXT NOT NULL,\n  external_event_id TEXT NOT NULL,\n  event_type TEXT NOT NULL,\n  payload_hash TEXT,\n  processing_status TEXT NOT NULL DEFAULT 'received' CHECK (processing_status IN ('received','routed','processed','ignored','failed')),\n  received_at TIMESTAMPTZ NOT NULL DEFAULT now(),\n  processed_at TIMESTAMPTZ,\n  error_message TEXT,\n  CONSTRAINT ux_webhook_events_platform_event UNIQUE (platform, external_event_id)\n);\nCREATE INDEX IF NOT EXISTS ix_webhook_events_status ON webhook_events (processing_status, received_at);\n\nCREATE TABLE IF NOT EXISTS orders (\n  order_id TEXT PRIMARY KEY DEFAULT ('ANF-' || upper(substr(replace(gen_random_uuid()::text, '-', ''), 1, 10))),\n  customer_id BIGINT REFERENCES customers(customer_id),\n  conversation_id BIGINT REFERENCES conversations(conversation_id),\n  platform TEXT CHECK (platform IN ('facebook','instagram')),\n  customer_name TEXT,\n  phone TEXT,\n  address TEXT,\n  subtotal_bdt NUMERIC(12,2) NOT NULL DEFAULT 0 CHECK (subtotal_bdt >= 0),\n  delivery_fee_bdt NUMERIC(12,2) NOT NULL DEFAULT 0 CHECK (delivery_fee_bdt >= 0),\n  total_bdt NUMERIC(12,2) NOT NULL DEFAULT 0 CHECK (total_bdt >= 0),\n  payment_method TEXT,\n  payment_status TEXT NOT NULL DEFAULT 'pending' CHECK (payment_status IN ('pending','paid','failed','refunded')),\n  order_status TEXT NOT NULL DEFAULT 'draft' CHECK (order_status IN ('draft','confirmed','processing','shipped','delivered','cancelled')),\n  source TEXT,\n  sheet_sync_status TEXT NOT NULL DEFAULT 'pending' CHECK (sheet_sync_status IN ('pending','synced','failed')),\n  sheet_synced_at TIMESTAMPTZ,\n  idempotency_key TEXT,\n  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),\n  confirmed_at TIMESTAMPTZ,\n  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()\n);\nCREATE UNIQUE INDEX IF NOT EXISTS ux_orders_idempotency ON orders (idempotency_key) WHERE idempotency_key IS NOT NULL;\nCREATE INDEX IF NOT EXISTS ix_orders_customer ON orders (customer_id);\nCREATE INDEX IF NOT EXISTS ix_orders_conversation ON orders (conversation_id);\nCREATE INDEX IF NOT EXISTS ix_orders_status_created ON orders (order_status, created_at);\nCREATE INDEX IF NOT EXISTS ix_orders_sheet_sync ON orders (sheet_sync_status);\n\nCREATE TABLE IF NOT EXISTS order_items (\n  order_item_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,\n  order_id TEXT NOT NULL REFERENCES orders(order_id) ON DELETE CASCADE,\n  product_id BIGINT NOT NULL REFERENCES products(product_id),\n  sku TEXT NOT NULL,\n  product_name_snapshot TEXT NOT NULL,\n  size_ml INTEGER CHECK (size_ml IS NULL OR size_ml > 0),\n  unit_price_bdt NUMERIC(12,2) NOT NULL CHECK (unit_price_bdt >= 0),\n  quantity INTEGER NOT NULL CHECK (quantity > 0),\n  line_total_bdt NUMERIC(12,2) NOT NULL CHECK (line_total_bdt >= 0)\n);\nCREATE INDEX IF NOT EXISTS ix_order_items_order ON order_items (order_id);\nCREATE INDEX IF NOT EXISTS ix_order_items_product ON order_items (product_id);\n\nCREATE TABLE IF NOT EXISTS faqs (\n  faq_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,\n  category TEXT,\n  question TEXT NOT NULL,\n  answer TEXT NOT NULL,\n  active BOOLEAN NOT NULL DEFAULT TRUE,\n  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()\n);\nCREATE INDEX IF NOT EXISTS ix_faqs_active_category ON faqs (active, category);\n\nCREATE TABLE IF NOT EXISTS store_settings (\n  setting_key TEXT PRIMARY KEY,\n  setting_value TEXT,\n  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()\n);\n\nCREATE TABLE IF NOT EXISTS content_queue (\n  content_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,\n  source_file_id TEXT,\n  file_hash TEXT,\n  product_id BIGINT REFERENCES products(product_id),\n  channel TEXT NOT NULL CHECK (channel IN ('facebook','instagram')),\n  caption TEXT,\n  hashtags TEXT,\n  status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft','review','approved','publishing','published','failed','rejected')),\n  approval_required BOOLEAN NOT NULL DEFAULT TRUE,\n  approved_by TEXT,\n  approved_at TIMESTAMPTZ,\n  external_post_id TEXT,\n  permalink TEXT,\n  error_message TEXT,\n  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),\n  published_at TIMESTAMPTZ\n);\nCREATE UNIQUE INDEX IF NOT EXISTS ux_content_queue_file_channel ON content_queue (source_file_id, channel) WHERE source_file_id IS NOT NULL;\nCREATE UNIQUE INDEX IF NOT EXISTS ux_content_queue_hash_channel ON content_queue (file_hash, channel) WHERE file_hash IS NOT NULL;\nCREATE INDEX IF NOT EXISTS ix_content_queue_status ON content_queue (status);\nCREATE INDEX IF NOT EXISTS ix_content_queue_product ON content_queue (product_id);\n\nCREATE TABLE IF NOT EXISTS workflow_errors (\n  error_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,\n  workflow_name TEXT,\n  node_name TEXT,\n  execution_id TEXT,\n  execution_url TEXT,\n  error_message TEXT,\n  related_order_id TEXT,\n  related_content_id BIGINT,\n  retry_count INTEGER NOT NULL DEFAULT 0 CHECK (retry_count >= 0),\n  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),\n  resolved_at TIMESTAMPTZ\n);\nCREATE INDEX IF NOT EXISTS ix_workflow_errors_created ON workflow_errors (created_at);\nCREATE INDEX IF NOT EXISTS ix_workflow_errors_execution ON workflow_errors (execution_id);\n\nCREATE TABLE IF NOT EXISTS daily_reports (\n  report_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,\n  report_date DATE NOT NULL UNIQUE,\n  metrics JSONB NOT NULL,\n  report_text TEXT,\n  notification_status TEXT NOT NULL DEFAULT 'pending' CHECK (notification_status IN ('pending','sent','failed')),\n  created_at TIMESTAMPTZ NOT NULL DEFAULT now()\n);\n",
+        "options": {}
+      },
+      "id": "5274d5e1-290c-4493-aa8d-b08f5318d529",
+      "name": "Create Schema and Indexes",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.7,
+      "position": [
+        224,
+        0
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "mUyNiJpJoy8nDP5U",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a1",
+              "name": "status",
+              "type": "string",
+              "value": "Schema statements executed without database error"
+            },
+            {
+              "id": "a2",
+              "name": "tables",
+              "type": "string",
+              "value": "products, customers, conversations, messages, webhook_events, orders, order_items, faqs, store_settings, content_queue, workflow_errors, daily_reports"
+            },
+            {
+              "id": "a3",
+              "name": "completed_at",
+              "type": "string",
+              "value": "={{ $now.setZone(\"Asia/Dhaka\").toISO() }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "5ad19613-5d4a-449f-84e4-dad54e105d13",
+      "name": "Completion Summary",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        448,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "content": "WF00 - one-time setup. Configure a Postgres credential on the \"Create Schema and Indexes\" node. Safe to rerun: CREATE ... IF NOT EXISTS only, no DROP/DELETE. Additions beyond the spec: orders.sheet_sync_status, orders.idempotency_key, and a daily_reports table (for WF03/WF06).",
+        "color": 4
+      },
+      "id": "c619674f-4dfe-441c-aa99-98a039f7cfc4",
+      "name": "Setup Notes",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        144,
+        224
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Run Schema Setup Manually": {
+      "main": [
+        [
+          {
+            "node": "Create Schema and Indexes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Schema and Indexes": {
+      "main": [
+        [
+          {
+            "node": "Completion Summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "f35e42cc-e0d6-4637-aa5b-4b9fd00caade",
+  "meta": {
+    "instanceId": "e7563105945f95e9ae7340cca1ccbf247d8dd1f987589f578da42c62090ba135"
+  },
+  "nodeGroups": [],
+  "id": "YbfgKyuAYztnDXT4",
+  "tags": []
+}
