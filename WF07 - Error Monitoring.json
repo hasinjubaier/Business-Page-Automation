@@ -1,0 +1,183 @@
+{
+  "name": "WF07 - Error Monitoring",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "65c9dd5d-f0c2-4cdd-bea8-049baee24bf3",
+      "name": "Workflow Error Received",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const e = $input.item.json;\nconst ex = e.execution || {};\nconst wf = e.workflow || {};\nconst redact = (s) => String(s == null ? '' : s)\n  .replace(/access_token=[^&\\s\"']+/gi, 'access_token=[redacted]')\n  .replace(/(bearer|token|authorization|api[_-]?key|secret|password)([\"':=\\s]+)[A-Za-z0-9._~+\\/=-]{8,}/gi, '$1$2[redacted]')\n  .replace(/EAA[A-Za-z0-9]{12,}/g, '[redacted]')\n  .replace(/\\b\\d{6,}:[A-Za-z0-9_-]{20,}\\b/g, '[redacted]');\nconst rawMsg = redact((ex.error && ex.error.message) || 'Unknown error').replace(/\\s+/g, ' ').trim();\nconst message = rawMsg.slice(0, 300);\nconst m = rawMsg.match(/\\b(429|5\\d{2})\\b/);\nconst transient = !!m || /rate limit|too many requests|timed? ?out|ETIMEDOUT|ECONNRESET|socket hang up/i.test(rawMsg);\nlet kind = 'permanent';\nif (m && m[1] === '429') kind = 'rate_limited_429';\nelse if (m) kind = 'server_error_' + m[1];\nelse if (transient) kind = 'network_transient';\nreturn { json: {\n  workflow_id: String(wf.id || ''),\n  workflow_name: String(wf.name || 'Unknown workflow').slice(0, 120),\n  node_name: String(ex.lastNodeExecuted || 'Unknown node').slice(0, 120),\n  execution_id: String(ex.id || ''),\n  execution_url: String(ex.url || ''),\n  error_message: message,\n  error_kind: kind,\n  transient: transient,\n  mode: String(ex.mode || ''),\n} };"
+      },
+      "id": "6fd5a1a5-a803-4d9f-a8ec-1f54e5818b8e",
+      "name": "Normalize and Redact Error",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        224,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH prev AS (\n  SELECT count(*)::int AS c FROM workflow_errors\n  WHERE workflow_name = $1 AND node_name = $2 AND left(error_message, 300) = $3\n    AND created_at > now() - interval '30 minutes'\n), ins AS (\n  INSERT INTO workflow_errors (workflow_name, node_name, execution_id, execution_url, error_message)\n  VALUES ($1, $2, $4, $5, $3)\n  RETURNING error_id\n)\nSELECT ins.error_id, prev.c AS recent_similar_count, (prev.c > 0) AS is_duplicate FROM ins, prev",
+        "options": {
+          "queryReplacement": "={{ [$json.workflow_name, $json.node_name, $json.error_message, $json.execution_id, $json.execution_url] }}"
+        }
+      },
+      "id": "a0268a35-7a03-42eb-aed3-7ec1424ea1d1",
+      "name": "Log Error and Check Duplicate",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.7,
+      "position": [
+        448,
+        0
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "mUyNiJpJoy8nDP5U",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "dup",
+              "leftValue": "={{ $json.is_duplicate }}",
+              "rightValue": false,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "e0397e95-8613-44c0-8aab-0eefeccadc93",
+      "name": "Is New Error?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        672,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $vars.ADMIN_TELEGRAM_CHAT_ID || \"\" }}",
+        "text": "={{ 'Workflow error' + (($('Normalize and Redact Error').item.json.transient) ? ' (temporary: 429/5xx/network, may clear on its own)' : ' (needs a fix)') + '\\nWorkflow: ' + $('Normalize and Redact Error').item.json.workflow_name + '\\nNode: ' + $('Normalize and Redact Error').item.json.node_name + '\\nType: ' + $('Normalize and Redact Error').item.json.error_kind + '\\nMessage: ' + $('Normalize and Redact Error').item.json.error_message + '\\nExecution: ' + $('Normalize and Redact Error').item.json.execution_id + '\\n' + $('Normalize and Redact Error').item.json.execution_url + '\\nLog ID: ' + $json.error_id }}",
+        "additionalFields": {
+          "appendAttribution": false,
+          "disable_web_page_preview": true
+        }
+      },
+      "id": "e7c35b43-15a1-4a48-a652-56c01a55d8fa",
+      "name": "Alert Admin",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        896,
+        0
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000,
+      "webhookId": "e05309d2-e903-4af8-93fd-6c3dfcf2c2a6",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "content": "WF07 - Error monitoring. Set this as the Error Workflow (workflow settings) on each of WF01-WF06 AFTER publishing it. Logs every error to workflow_errors with secrets redacted. Identical errors (same workflow + node + message) within 30 minutes are logged but alert only once. Only the Telegram alert is retried (3 tries, 3s apart); n8n cannot limit node retries to specific status codes. It does NOT re-run failed workflows. Needs: Postgres + Telegram credentials, variable ADMIN_TELEGRAM_CHAT_ID.",
+        "color": 4
+      },
+      "id": "74398cd9-c504-4a7a-80c5-716e4f30c946",
+      "name": "Monitoring Notes",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        320,
+        224
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Workflow Error Received": {
+      "main": [
+        [
+          {
+            "node": "Normalize and Redact Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize and Redact Error": {
+      "main": [
+        [
+          {
+            "node": "Log Error and Check Duplicate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Error and Check Duplicate": {
+      "main": [
+        [
+          {
+            "node": "Is New Error?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is New Error?": {
+      "main": [
+        [
+          {
+            "node": "Alert Admin",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "timezone": "Asia/Dhaka"
+  },
+  "versionId": "7f67673c-7af3-4db0-ba99-2df2a201bae1",
+  "meta": {
+    "instanceId": "e7563105945f95e9ae7340cca1ccbf247d8dd1f987589f578da42c62090ba135"
+  },
+  "nodeGroups": [],
+  "id": "0wkL80fsfCklRkg7",
+  "tags": []
+}
